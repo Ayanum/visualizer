@@ -45,6 +45,8 @@ const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const ui = document.getElementById('ui');
 const startBtn = document.getElementById('startBtn');
+const badgeEl = document.getElementById('badge');
+const badgeBaseText = badgeEl.textContent;
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 
 const snapCanvas = document.createElement('canvas');
@@ -128,7 +130,7 @@ function drawBarcode(intensity) {
   for (let i = 0; i < count; i++) {
     const x = Math.random() * w;
     const thickRoll = Math.random();
-    const lw = (thickRoll < 0.7 ? randRange(0.4, 3) : randRange(3, 14)) * DPR;
+    const lw = (thickRoll < 0.7 ? randRange(0.4, 3) : randRange(10, 24)) * DPR;
     ctx.fillStyle = pickRandom(GLITCH_COLORS);
     ctx.fillRect(x, 0, lw, h);
   }
@@ -266,6 +268,8 @@ let prevGlitchNow = 0;
 let lastMicroGlitch = 0;
 let lastStrobeTrig = 0;
 let pendingEchoes = []; // delayed echo repeats of a kick reaction, like an audio delay effect
+let beatIntervals = [];
+let bpmEstimate = null;
 let glitchAnim = null;
 function getGlitchAmount(now) {
   const base = 0.02; // near-silent between kicks
@@ -305,8 +309,24 @@ function loop() {
   prevLoudness = loudness;
 
   if (bass > avgBass * 1.12 && bass > 0.15 + energyEnvelope * 0.25 && now - lastBeat > 110) {
+    const prevBeatTime = lastBeat;
     lastBeat = now;
     beatCount++;
+
+    // estimate BPM from the interval between consecutive detected kicks
+    if (prevBeatTime > 0) {
+      const interval = now - prevBeatTime;
+      if (interval > 260 && interval < 1100) { // plausible techno range (~55-230bpm)
+        beatIntervals.push(interval);
+        if (beatIntervals.length > 10) beatIntervals.shift();
+        if (beatIntervals.length >= 3) {
+          const sorted = [...beatIntervals].sort((a, b) => a - b);
+          const medianInterval = sorted[Math.floor(sorted.length / 2)];
+          bpmEstimate = Math.round(60000 / medianInterval);
+          badgeEl.textContent = `${badgeBaseText} · ${bpmEstimate} BPM`;
+        }
+      }
+    }
     // the garbled corruption text fires on every kick
     glitchAnim = { start: now, attack: 25, release: randRange(500, 700), peak: Math.min(0.85, (0.35 + bass * 0.45) * intensityMul * randRange(0.95, 1.12)) };
     pendingEchoes.push({ at: now + randRange(180, 240), peak: glitchAnim.peak * 0.55 });
@@ -324,6 +344,8 @@ function loop() {
       kickColorUntil = now + 150;
     }
   }
+
+  // (white strobe removed per request — no trigger here anymore)
 
   // micro-glitches from non-kick transients (snare/hat/vocal texture) so the
   // corruption layer isn't purely locked to the kick grid
@@ -358,11 +380,13 @@ function loop() {
   if (now < kickFlashUntil) {
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
   } else if (glitchNow > 0.08 && prevGlitchNow <= 0.08) {
-    ctx.fillStyle = '#000000';
-  } else if (glitchNow > 0.08) {
-    ctx.fillStyle = 'rgba(0,0,0,0.045)';
+    ctx.fillStyle = '#000000'; // still pop hard at the onset of a new burst
   } else {
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    // smooth, continuous fade-out curve instead of a hard speed switch —
+    // the stronger the lingering glitch, the slower it fades, tapering
+    // gently back to the normal idle trail as it dies down.
+    const fadeAlpha = 0.32 - Math.min(0.28, glitchNow * 3.5);
+    ctx.fillStyle = `rgba(0,0,0,${fadeAlpha.toFixed(3)})`;
   }
   ctx.fillRect(0, 0, w, h);
   prevGlitchNow = glitchNow;
@@ -405,7 +429,7 @@ function loop() {
     grad.addColorStop(0, 'rgba(255,255,255,0)');
     grad.addColorStop(0.55, kickColor + '18');
     grad.addColorStop(1, kickColor + '66');
-    ctx.globalAlpha = 0.45 + p * 0.35;
+    ctx.globalAlpha = 0.05 + p * 0.05;
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
