@@ -130,7 +130,7 @@ function drawBarcode(intensity) {
   for (let i = 0; i < count; i++) {
     const x = Math.random() * w;
     const thickRoll = Math.random();
-    const lw = (thickRoll < 0.7 ? randRange(0.4, 3) : randRange(10, 24)) * DPR;
+    const lw = (thickRoll < 0.7 ? randRange(0.4, 3) : randRange(3, 14)) * DPR;
     ctx.fillStyle = pickRandom(GLITCH_COLORS);
     ctx.fillRect(x, 0, lw, h);
   }
@@ -178,7 +178,9 @@ let lastCorruptionUpdate = 0;
 let kickFlashUntil = 0;
 let kickColorUntil = 0;
 let kickColor = '#FF00FF';
-function drawCorruption(now, intensity) {
+let corruptionParticles = [];
+
+function spawnCorruption(now, intensity) {
   if (intensity < 0.08) return;
   if (now - lastCorruptionUpdate < 100) return; // slower, calmer pace
   lastCorruptionUpdate = now;
@@ -190,13 +192,15 @@ function drawCorruption(now, intensity) {
     const by = randRange(0, h - bh);
     const bw = randRange(w * 0.12, w * 0.85);
     const bx = randRange(0, w - bw);
-
-    ctx.fillStyle = pickRandom(GLITCH_COLORS);
-    ctx.fillRect(bx, by, bw, bh);
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    corruptionParticles.push({
+      type: 'bar', x: bx, y: by, w: bw, h: bh,
+      color: pickRandom(GLITCH_COLORS),
+      vy: dir * randRange(25, 100) * DPR,
+      born: now, life: randRange(450, 950)
+    });
   }
-  ctx.globalAlpha = 1;
 
-  ctx.textBaseline = 'top';
   const rows = Math.floor(h / lineHeight);
   const rowChance = 0.05 + intensity * 0.18;
   for (let r = 0; r < rows; r++) {
@@ -209,13 +213,41 @@ function drawCorruption(now, intensity) {
       for (let k = 0; k < runLen; k++) str += GLYPHS[(Math.random() * GLYPHS.length) | 0];
       const sizeFactor = randRange(0.5, 2.1);
       const runSize = fontSize * sizeFactor;
-      ctx.font = `bold ${runSize}px "Courier New", monospace`;
-      ctx.fillStyle = pickRandom(GLITCH_COLORS);
-      ctx.fillText(str, x, y);
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      corruptionParticles.push({
+        type: 'text', x, y, str, size: runSize,
+        color: pickRandom(GLITCH_COLORS),
+        vy: dir * randRange(20, 80) * DPR,
+        born: now, life: randRange(450, 950)
+      });
       x += str.length * runSize * 0.62 + randRange(fontSize, fontSize * 6);
     }
   }
 }
+
+function renderCorruption(now, dt) {
+  const h = canvas.height;
+  ctx.textBaseline = 'top';
+  for (let i = corruptionParticles.length - 1; i >= 0; i--) {
+    const p = corruptionParticles[i];
+    const age = now - p.born;
+    if (age > p.life) { corruptionParticles.splice(i, 1); continue; }
+    p.y += p.vy * dt;
+    if (p.y < -p.size * 2 - 40 || p.y > h + 40) { corruptionParticles.splice(i, 1); continue; }
+
+    const fadeT = age / p.life;
+    ctx.globalAlpha = fadeT < 0.75 ? 1 : Math.max(0, 1 - (fadeT - 0.75) / 0.25);
+    ctx.fillStyle = p.color;
+    if (p.type === 'bar') {
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+    } else {
+      ctx.font = `bold ${p.size}px "Courier New", monospace`;
+      ctx.fillText(p.str, p.x, p.y);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
 
 // ================= Slice tear (datamosh) =================
 let tearUntil = 0;
@@ -270,6 +302,8 @@ let lastStrobeTrig = 0;
 let pendingEchoes = []; // delayed echo repeats of a kick reaction, like an audio delay effect
 let beatIntervals = [];
 let bpmEstimate = null;
+let corruptionScrollDir = 1;
+let corruptionScrollSpeed = 0;
 let glitchAnim = null;
 function getGlitchAmount(now) {
   const base = 0.02; // near-silent between kicks
@@ -394,7 +428,8 @@ function loop() {
   drawAmbient(now, energyEnvelope, dt, mid);
 
   drawBarcode((treble * 0.65 + mid * 0.2 + glitchNow * 0.25) * intensityMul);
-  drawCorruption(now, Math.min(1.0, glitchNow + (now < kickFlashUntil ? 0.38 : 0)));
+  spawnCorruption(now, Math.min(1.0, glitchNow + (now < kickFlashUntil ? 0.38 : 0)));
+  renderCorruption(now, dt);
 
   if (now < tearUntil) applyTear();
   applyDrift(now, dt);
@@ -429,7 +464,7 @@ function loop() {
     grad.addColorStop(0, 'rgba(255,255,255,0)');
     grad.addColorStop(0.55, kickColor + '18');
     grad.addColorStop(1, kickColor + '66');
-    ctx.globalAlpha = 0.05 + p * 0.05;
+    ctx.globalAlpha = 0.45 + p * 0.35;
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
