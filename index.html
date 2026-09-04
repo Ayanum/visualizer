@@ -134,7 +134,7 @@ const GLYPHS = '01' + '0123456789ABCDEF' + '|#/\\-_.:*.+ﾟ.☆.｡.:. *:ﾟ ｡
 // Computer-vision-style tracking: moving boxes, center points, coordinates,
 // IDs, and persistent traces. Audio controls movement and impact.
 const TRACK_COUNT = 12;
-const TRACK_TRAIL = 180;
+const TRACK_TRAIL = 120;
 let trackedBlobs = [];
 let blobsLastBeatCount = -1;
 
@@ -330,7 +330,7 @@ function drawBarcode(intensity) {
   for (let i = 0; i < count; i++) {
     const x = Math.random() * w;
     const thickRoll = Math.random();
-    const lw = (thickRoll < 0.7 ? randRange(0.4, 3) : randRange(9, 42)) * DPR;
+    const lw = (thickRoll < 0.7 ? randRange(0.4, 3) : randRange(6, 21)) * DPR;
     ctx.fillStyle = pickRandom(GLITCH_COLORS);
     ctx.fillRect(x, 0, lw, h);
   }
