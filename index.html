@@ -173,7 +173,7 @@ function drawBlobs(now, bass, mid, treble, energy, dt) {
 
   const w = canvas.width, h = canvas.height;
   const beat = Math.pow(Math.max(0, bass), 2.0);
-  const motion = 0.9 + mid * 2.8;
+  const motion = 0.55 + mid * 1.8;
   const jitter = treble * 38 * DPR;
 
   ctx.save();
