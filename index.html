@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Terminal Glitch Techno Visualizer</title>
+<title>Terminal Glitch Techno Visualizer — Blob Object Tracking</title>
 <style>
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
@@ -38,7 +38,7 @@
   <button id="startBtn">🎤 マイクを有効にする</button>
   <div id="hint">音楽を流しながらタップしてください</div>
 </div>
-<div id="badge">DATA GLITCH VISUALIZER — NEON</div>
+<div id="badge">DATA GLITCH VISUALIZER — NEON · BLOB OBJECT TRACKING</div>
 
 <script>
 const canvas = document.getElementById('c');
@@ -47,7 +47,7 @@ const ui = document.getElementById('ui');
 const startBtn = document.getElementById('startBtn');
 const badgeEl = document.getElementById('badge');
 const badgeBaseText = badgeEl.textContent;
-const DPR = Math.min(window.devicePixelRatio || 1, 2);
+const DPR = Math.min(window.devicePixelRatio || 1, 1);
 
 const snapCanvas = document.createElement('canvas');
 const snapCtx = snapCanvas.getContext('2d');
@@ -65,6 +65,7 @@ function resize() {
   fontSize = 21 * DPR;
   lineHeight = fontSize * 1.35;
   initAmbient();
+  initBlobs();
 }
 window.addEventListener('resize', resize);
 
@@ -122,11 +123,162 @@ function getBands() {
 const GLITCH_COLORS = ['#FF00FF', '#00FFFF', '#39FF14', '#FFE600', '#FFFFFF'];
 const GLYPHS = '01' + '0123456789ABCDEF' + '|#/\\-_.:*.+ﾟ.☆.｡.:. *:ﾟ ｡';
 
+
+// ================= Blob / Object Tracking overlay =================
+// Computer-vision-style tracking: moving boxes, center points, coordinates,
+// IDs, and persistent traces. Audio controls movement and impact.
+const TRACK_COUNT = 7;
+const TRACK_TRAIL = 36;
+let trackedBlobs = [];
+
+function makeTrackedBlob(i) {
+  return {
+    id: i + 1,
+    x: canvas.width * (0.15 + Math.random() * 0.70),
+    y: canvas.height * (0.15 + Math.random() * 0.70),
+    vx: 0, vy: 0,
+    phase: Math.random() * Math.PI * 2,
+    speed: randRange(0.65, 1.15),
+    size: randRange(44, 88) * DPR,
+    trail: []
+  };
+}
+
+function initBlobs() {
+  trackedBlobs = [];
+  for (let i = 0; i < TRACK_COUNT; i++) trackedBlobs.push(makeTrackedBlob(i));
+}
+
+function drawBlobs(now, bass, mid, treble, energy, dt) {
+  if (!trackedBlobs.length) initBlobs();
+
+  const w = canvas.width, h = canvas.height;
+  const beat = Math.pow(Math.max(0, bass), 2.0);
+  const motion = 0.55 + mid * 1.8;
+  const jitter = treble * 22 * DPR;
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Persistent motion traces.
+  for (const b of trackedBlobs) {
+    if (b.trail.length < 2) continue;
+    ctx.beginPath();
+    for (let k = 0; k < b.trail.length; k++) {
+      const p = b.trail[k];
+      if (k === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    }
+    ctx.strokeStyle = 'rgba(0,255,255,0.34)';
+    ctx.lineWidth = Math.max(1.7, 2.1 * DPR);
+    ctx.stroke();
+  }
+
+  // Tracking network.
+  ctx.beginPath();
+  trackedBlobs.forEach((b, i) => {
+    if (i === 0) ctx.moveTo(b.x, b.y);
+    else ctx.lineTo(b.x, b.y);
+  });
+  ctx.strokeStyle = 'rgba(255,255,255,0.54)';
+  ctx.lineWidth = Math.max(0.5, 1.8 * DPR);
+  ctx.stroke();
+
+  for (let i = 0; i < trackedBlobs.length; i++) {
+    const b = trackedBlobs[i];
+    const a = now * 0.00042 * motion * b.speed + b.phase;
+
+    const tx =
+      w * (0.5 + 0.36 * Math.sin(a + i * 1.73)) +
+      w * 0.11 * Math.sin(a * 0.43 + i * 2.1) +
+      Math.sin(now * 0.006 + i) * jitter;
+
+    const ty =
+      h * (0.5 + 0.30 * Math.cos(a * 0.83 + i * 1.27)) +
+      h * 0.10 * Math.sin(a * 0.51 - i) +
+      Math.cos(now * 0.005 + i * 1.4) * jitter;
+
+    b.vx += (tx - b.x) * (4.5 + energy * 8 + beat * 3) * dt;
+    b.vy += (ty - b.y) * (4.5 + energy * 8 + beat * 3) * dt;
+    b.vx *= Math.pow(0.08, dt);
+    b.vy *= Math.pow(0.08, dt);
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+
+    b.x = Math.max(8 * DPR, Math.min(w - 8 * DPR, b.x));
+    b.y = Math.max(8 * DPR, Math.min(h - 8 * DPR, b.y));
+
+    b.trail.push({ x: b.x, y: b.y });
+    if (b.trail.length > TRACK_TRAIL) b.trail.shift();
+
+    const pulse = 1 + beat * 0.52;
+    const bw = b.size * (1.55 + energy * 0.75) * pulse;
+    const bh = b.size * (1.10 + mid * 0.70) * pulse;
+    const x = b.x - bw / 2;
+    const y = b.y - bh / 2;
+
+    // Faint tracked-object region.
+    ctx.fillStyle = 'rgba(0,255,255,0.025)';
+    ctx.fillRect(x, y, bw, bh);
+
+    // Bounding box.
+    ctx.strokeStyle = 'rgba(255,0,255,0.78)';
+    ctx.lineWidth = Math.max(0.8, (2.1 + beat * 2.5) * DPR);
+    ctx.strokeRect(x, y, bw, bh);
+
+    // Corner brackets.
+    const c = Math.min(bw, bh) * 0.18;
+    ctx.beginPath();
+    ctx.moveTo(x, y + c); ctx.lineTo(x, y); ctx.lineTo(x + c, y);
+    ctx.moveTo(x + bw - c, y); ctx.lineTo(x + bw, y); ctx.lineTo(x + bw, y + c);
+    ctx.moveTo(x, y + bh - c); ctx.lineTo(x, y + bh); ctx.lineTo(x + c, y + bh);
+    ctx.moveTo(x + bw - c, y + bh); ctx.lineTo(x + bw, y + bh); ctx.lineTo(x + bw, y + bh - c);
+    ctx.stroke();
+
+    // Center target.
+    const cross = (7 + beat * 7) * DPR;
+    ctx.beginPath();
+    ctx.moveTo(b.x - cross, b.y); ctx.lineTo(b.x + cross, b.y);
+    ctx.moveTo(b.x, b.y - cross); ctx.lineTo(b.x, b.y + cross);
+    ctx.strokeStyle = 'rgba(255,255,255,0.88)';
+    ctx.lineWidth = Math.max(0.7, 1 * DPR);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, (3 + beat * 3) * DPR, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fill();
+
+    // ID and coordinate readout.
+    ctx.textBaseline = 'middle';
+    ctx.font = `${Math.max(10, 13 * DPR)}px "Courier New", monospace`;
+
+    const label = `${(b.x / DPR).toFixed(2)}, ${(b.y / DPR).toFixed(2)}`;
+    const pad = 5 * DPR;
+    const tw = ctx.measureText(label).width;
+    const labelX = Math.min(w - tw - pad * 2 - 2, x + bw + 5 * DPR);
+    const labelY = Math.max(12 * DPR, y + 13 * DPR);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.48)';
+    ctx.fillRect(labelX - pad, labelY - 8 * DPR, tw + pad * 2, 16 * DPR);
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.fillText(label, labelX, labelY);
+
+    ctx.font = `bold ${Math.max(9, 10 * DPR)}px "Courier New", monospace`;
+    ctx.fillStyle = 'rgba(0,255,255,0.95)';
+    ctx.fillText(`*${b.id}`, x + 4 * DPR, y + 8 * DPR);
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
 // ================= Barcode / test-pattern line layer =================
 function drawBarcode(intensity) {
   if (intensity < 0.15) return;
   const w = canvas.width, h = canvas.height;
-  const count = Math.floor(2 + intensity * 14); // accent only, not a dense field
+  const count = Math.floor(2 + intensity * 8); // lighter accent for mobile
   for (let i = 0; i < count; i++) {
     const x = Math.random() * w;
     const thickRoll = Math.random();
@@ -138,7 +290,7 @@ function drawBarcode(intensity) {
 }
 
 // ================= Idle ambient glyph layer (keeps the screen alive at rest) =================
-const AMBIENT_COUNT = 16;
+const AMBIENT_COUNT = 8;
 let ambientGlyphs = [];
 function makeAmbientGlyph() {
   return {
@@ -181,12 +333,12 @@ let kickColor = '#FF00FF';
 let corruptionParticles = [];
 
 function spawnCorruption(now, intensity) {
-  if (intensity < 0.08) return;
-  if (now - lastCorruptionUpdate < 100) return; // slower, calmer pace
+  if (intensity < 0.1) return;
+  if (now - lastCorruptionUpdate < 150) return; // even slower pace, fewer spawns per second
   lastCorruptionUpdate = now;
   const w = canvas.width, h = canvas.height;
 
-  const barCount = Math.floor(1 + intensity * 4);
+  const barCount = Math.floor(1 + intensity * 2);
   for (let i = 0; i < barCount; i++) {
     const bh = randRange(fontSize * 0.4, fontSize * 2);
     const by = randRange(0, h - bh);
@@ -197,32 +349,33 @@ function spawnCorruption(now, intensity) {
       type: 'bar', x: bx, y: by, w: bw, h: bh,
       color: pickRandom(GLITCH_COLORS),
       vy: dir * randRange(25, 100) * DPR,
-      born: now, life: randRange(450, 950)
+      born: now, life: randRange(400, 750)
     });
   }
 
   const rows = Math.floor(h / lineHeight);
-  const rowChance = 0.05 + intensity * 0.18;
+  const rowChance = 0.04 + intensity * 0.1;
   for (let r = 0; r < rows; r++) {
     if (Math.random() > rowChance) continue;
     const y = r * lineHeight;
     let x = 0;
     while (x < w) {
-      const runLen = 2 + Math.floor(Math.random() * 12);
+      const runLen = 2 + Math.floor(Math.random() * 8);
       let str = '';
       for (let k = 0; k < runLen; k++) str += GLYPHS[(Math.random() * GLYPHS.length) | 0];
-      const sizeFactor = randRange(0.5, 2.1);
+      const sizeFactor = randRange(0.5, 1.8);
       const runSize = fontSize * sizeFactor;
       const dir = Math.random() < 0.5 ? 1 : -1;
       corruptionParticles.push({
         type: 'text', x, y, str, size: runSize,
         color: pickRandom(GLITCH_COLORS),
         vy: dir * randRange(20, 80) * DPR,
-        born: now, life: randRange(450, 950)
+        born: now, life: randRange(400, 750)
       });
-      x += str.length * runSize * 0.62 + randRange(fontSize, fontSize * 6);
+      x += str.length * runSize * 0.62 + randRange(fontSize * 1.5, fontSize * 7);
     }
   }
+  if (corruptionParticles.length > 90) corruptionParticles.splice(0, corruptionParticles.length - 90);
 }
 
 function renderCorruption(now, dt) {
@@ -258,7 +411,7 @@ function applyTear() {
   const w = canvas.width, h = canvas.height;
   snapCtx.clearRect(0, 0, w, h);
   snapCtx.drawImage(canvas, 0, 0);
-  const stripH = randRange(6, 14) * DPR;
+  const stripH = randRange(50, 50) * DPR; // thicker strips = fewer drawImage calls
   for (let y = 0; y < h; y += stripH) {
     const shift = (Math.random() - 0.5) * 80 * DPR * tearStrength;
     ctx.drawImage(snapCanvas, 0, y, w, stripH, shift, y, w, stripH);
@@ -426,6 +579,7 @@ function loop() {
   prevGlitchNow = glitchNow;
 
   drawAmbient(now, energyEnvelope, dt, mid);
+  drawBlobs(now, bass, mid, treble, energyEnvelope, dt);
 
   drawBarcode((treble * 0.65 + mid * 0.2 + glitchNow * 0.25) * intensityMul);
   spawnCorruption(now, Math.min(1.0, glitchNow + (now < kickFlashUntil ? 0.38 : 0)));
@@ -448,7 +602,7 @@ function loop() {
     ctx.fillRect(0, 0, w, h);
 
     // Concentrated horizontal chroma bands for a sharper techno hit.
-    const bandCount = 3 + Math.floor(p * 5);
+    const bandCount = 2 + Math.floor(p * 3);
     for (let i = 0; i < bandCount; i++) {
       const bh = randRange(3, 18) * DPR;
       const by = Math.random() * h;
@@ -459,13 +613,9 @@ function loop() {
       ctx.fillRect(bx, by, bw, bh);
     }
 
-    // Neon edge bloom — adds color without turning the whole screen into a solid flash.
-    const grad = ctx.createRadialGradient(w * 0.5, h * 0.5, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.72);
-    grad.addColorStop(0, 'rgba(255,255,255,0)');
-    grad.addColorStop(0.55, kickColor + '18');
-    grad.addColorStop(1, kickColor + '66');
-    ctx.globalAlpha = 0.45 + p * 0.35;
-    ctx.fillStyle = grad;
+    // Neon edge tint — flat fill instead of a per-frame radial gradient (cheaper on mobile GPUs).
+    ctx.globalAlpha = 0.18 + p * 0.22;
+    ctx.fillStyle = kickColor;
     ctx.fillRect(0, 0, w, h);
 
     ctx.restore();
