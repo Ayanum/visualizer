@@ -180,24 +180,38 @@ function drawBlobs(now, bass, mid, treble, energy, dt) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Persistent motion traces.
+   // Persistent motion traces — tapered "tube" look: thin & faint at the
+  // old tail end, thick & bright near the current position, with a glossy
+  // highlight layered on top near the head for a 3D, rounded feel.
   for (const b of trackedBlobs) {
-    if (b.trail.length < 3) continue;
-    ctx.beginPath();
-    ctx.moveTo(b.trail[0].x, b.trail[0].y);
-    for (let k = 1; k < b.trail.length - 1; k++) {
-      const p0 = b.trail[k];
-      const p1 = b.trail[k + 1];
-      const midX = (p0.x + p1.x) / 2;
-      const midY = (p0.y + p1.y) / 2;
-      ctx.quadraticCurveTo(p0.x, p0.y, midX, midY);
+    const n = b.trail.length;
+    if (n < 3) continue;
+ 
+    const segments = 12; // draw in bands so width/alpha can taper smoothly
+    for (let s = 0; s < segments; s++) {
+      const i0 = Math.floor((s / segments) * (n - 1));
+      const i1 = Math.floor(((s + 1) / segments) * (n - 1));
+      if (i1 <= i0) continue;
+ 
+      const t = (s + 1) / segments; // 0 = oldest/tail, 1 = newest/head
+      ctx.beginPath();
+      ctx.moveTo(b.trail[i0].x, b.trail[i0].y);
+      for (let k = i0 + 1; k <= i1; k++) {
+        const p0 = b.trail[k];
+        if (k < i1) {
+          const p1 = b.trail[k + 1];
+          ctx.quadraticCurveTo(p0.x, p0.y, (p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
+        } else {
+          ctx.lineTo(p0.x, p0.y);
+        }
+      }
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(0.5, (0.5 + t * t * 9.6) * DPR);
+      ctx.strokeStyle = hexToRgba(b.trailColor, 0.06 + t * t * 0.42);
+      ctx.stroke();
     }
-    const last = b.trail[b.trail.length - 1];
-    ctx.lineTo(last.x, last.y);
-    ctx.strokeStyle = hexToRgba(b.trailColor, 0.34);
-    ctx.lineWidth = Math.max(9.7, 10.1 * DPR);
-    ctx.stroke();
-  }
+ 
 
   // Tracking network.
   ctx.beginPath();
