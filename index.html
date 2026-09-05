@@ -388,7 +388,7 @@ function spawnCorruption(now, intensity) {
 
   const barCount = Math.floor(2 + intensity * 4);
   for (let i = 0; i < barCount; i++) {
-    const bh = randRange(fontSize * 0.15, fontSize * 4);
+    const bh = randRange(fontSize * 0.15, fontSize * 3);
     const by = randRange(0, h - bh);
     const bw = randRange(w * 0.05, w * 0.85);
     const bx = randRange(0, w - bw);
